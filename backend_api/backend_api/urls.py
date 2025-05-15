@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path
 from face_recognition.views import *
 from django.views.decorators.csrf import csrf_exempt
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('register_face/', csrf_exempt(register_face),
@@ -31,4 +32,4 @@ urlpatterns = [
     path('list_users/', csrf_exempt(list_users),
          name='list_users_api'),
     path('stats', face_stats, name='face_stats')
-]
+]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

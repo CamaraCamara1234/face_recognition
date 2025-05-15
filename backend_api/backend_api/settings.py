@@ -149,5 +149,9 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
+import os
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/media/'
+
 # Pour le développement seulement :
 CORS_ALLOW_ALL_ORIGINS = True

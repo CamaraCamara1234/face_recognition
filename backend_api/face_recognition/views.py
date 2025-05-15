@@ -10,6 +10,10 @@ from .services.face_reg_service import *
 import json
 from .services.connexion_db import *
 import datetime
+import os
+import base64
+import uuid
+
 
 
 @csrf_exempt
@@ -27,23 +31,39 @@ def register_face(request):
                     'message': 'user_id et image sont requis'
                 }, status=400)
 
-            # 2. Traitement de l'image
+            # 2. Création du répertoire utilisateur si inexistant
+            user_dir = os.path.join(settings.MEDIA_ROOT, 'data', user_id)
+            os.makedirs(user_dir, exist_ok=True)
+
+            # 3. Sauvegarde de l'image originale
+            unique_filename = f"{uuid.uuid4().hex}.jpg"
+            image_path = os.path.join(user_dir, unique_filename)
+            
+            with open(image_path, 'wb+') as destination:
+                for chunk in image_file.chunks():
+                    destination.write(chunk)
+
+            # 4. Traitement de l'image
             image = Image.open(image_file).convert('RGB')
             embedding = compute_robust_embedding_insightface(image)
 
             if embedding is None:
+                # Suppression de l'image si aucun visage détecté
+                if os.path.exists(image_path):
+                    os.remove(image_path)
                 return JsonResponse({
                     'success': False,
                     'message': 'Aucun visage détecté dans l\'image'
                 }, status=400)
 
-            # 3. Enregistrement dans FAISS
+            # 5. Enregistrement dans FAISS
             face_db.add_face(embedding, user_id)
 
             return JsonResponse({
                 'success': True,
                 'message': f'Visage enregistré avec l\'ID: {user_id}',
-                'embedding_shape': embedding.shape
+                'embedding_shape': embedding.shape,
+                'image_path': os.path.join('media', 'data', user_id, unique_filename)
             })
 
         except Exception as e:
@@ -83,11 +103,9 @@ def verify_face(request):
                 }, status=400)
 
             matched_id, distance = face_db.search_face(embedding, threshold)
-
-            # Calcul du pourcentage (65% au seuil, 100% à distance 0)
             percentage = max(0, min(100, 100 - (distance / threshold) * 35))
-
-            return JsonResponse({
+            
+            response_data = {
                 'success': matched_id is not None,
                 'matched': matched_id is not None,
                 'user_id': matched_id,
@@ -98,7 +116,39 @@ def verify_face(request):
                     f'Visage reconnu: {matched_id}' if matched_id
                     else 'Aucune correspondance trouvée'
                 )
-            })
+            }
+
+            # Si un utilisateur est identifié, chercher sa dernière image enregistrée
+            if matched_id:
+                user_dir = os.path.join(settings.MEDIA_ROOT, 'data', matched_id)
+                
+                if os.path.exists(user_dir):
+                    # Trouver le fichier image le plus récent
+                    try:
+                        image_files = [
+                            f for f in os.listdir(user_dir) 
+                            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+                        ]
+                        
+                        if image_files:
+                            # Trier par date de modification (le plus récent en premier)
+                            image_files.sort(
+                                key=lambda x: os.path.getmtime(os.path.join(user_dir, x)),
+                                reverse=True
+                            )
+                            latest_image = image_files[0]
+                            image_path = os.path.join(user_dir, latest_image)
+                            
+                            # Encoder l'image en base64
+                            with open(image_path, "rb") as image_file:
+                                encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
+                            
+                            response_data['user_image'] = f"data:image/jpeg;base64,{encoded_image}"
+                    except Exception as e:
+                        # Ne pas échouer si problème avec l'image
+                        print(f"Erreur lors de la récupération de l'image: {str(e)}")
+
+            return JsonResponse(response_data)
 
         except Exception as e:
             return JsonResponse({
