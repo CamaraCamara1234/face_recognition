@@ -1,0 +1,4 @@
+# Ignorer tout le répertoire env (environnement virtuel Python)
+/env/
+
+/face-recognition-frontend/node_modules/

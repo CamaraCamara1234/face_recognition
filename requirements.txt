@@ -1,0 +1,7 @@
+faiss-cpu
+insightface
+django
+onnxruntime
+torch
+torchvision
+django-cors-headers
