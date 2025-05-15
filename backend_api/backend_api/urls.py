@@ -24,5 +24,11 @@ urlpatterns = [
          name='regiter_face_api'),
     path('search_face/', csrf_exempt(verify_face),
          name='search_face_api'),
+    path('delete_user', csrf_exempt(delete_user),
+         name='delete_user_api'),
+    path('clear_database/', csrf_exempt(clear_database),
+         name='clear_database_api'),
+    path('list_users/', csrf_exempt(list_users),
+         name='list_users_api'),
     path('stats', face_stats, name='face_stats')
 ]

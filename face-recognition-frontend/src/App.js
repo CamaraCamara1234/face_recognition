@@ -8,6 +8,7 @@ import Navbar from './components/Navbar';
 import FaceRegister from './components/FaceRegister';
 import FaceSearch from './components/FaceSearch';
 import FaceStats from './components/FaceStats';
+import UserManagement from './components/UserManagement';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
           <Route path="/register" element={<FaceRegister />} />
           <Route path="/search" element={<FaceSearch />} />
           <Route path="/stats" element={<FaceStats />} />
+          <Route path="/database" element={<UserManagement />} />
         </Routes>
       </Router>
     </ThemeProvider>

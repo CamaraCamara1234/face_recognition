@@ -69,6 +69,15 @@ const Navbar = () => {
             >
               Stats
             </Button>
+
+            <Button 
+              color="inherit" 
+              component={Link} 
+              to="/database"
+              sx={{ mx: 1 }}
+            >
+              Database
+            </Button>
           </Box>
         </Toolbar>
       </Container>

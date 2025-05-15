@@ -9,78 +9,7 @@ import numpy as np
 from .services.face_reg_service import *
 import json
 from .services.connexion_db import *
-
-
-# # Simule la base (à remplacer par une base réelle ou pickle plus tard)
-# database_embeddings = []
-# ids = []
-
-# @csrf_exempt
-# def register_face(request):
-#     if request.method == 'POST':
-#         try:
-#             # Récupération des données
-#             user_id = request.POST.get('user_id')
-#             image_file = request.FILES.get('image')
-
-#             if not user_id or not image_file:
-#                 return JsonResponse({'success': False, 'message': 'user_id ou image manquant.'}, status=400)
-
-#             # Conversion de l'image
-#             image = Image.open(image_file).convert('RGB')
-
-#             # Extraction des embeddings
-#             embedding = compute_robust_embedding_insightface(image)
-#             if embedding is None:
-#                 return JsonResponse({'success': False, 'message': 'Aucun visage détecté.'}, status=400)
-
-#             # Ajout à la base (à remplacer par une base persistante)
-#             database_embeddings.append(embedding)
-#             ids.append(user_id)
-
-#             return JsonResponse({'success': True, 'message': f'Utilisateur {user_id} enregistré.'})
-
-#         except Exception as e:
-#             return JsonResponse({'success': False, 'error': str(e)}, status=500)
-#     else:
-#         return JsonResponse({'success': False, 'message': 'Méthode non autorisée.'}, status=405)
-
-# @csrf_exempt
-# def verify_face1(request):
-#     if request.method == 'POST':
-#         try:
-#             image_file = request.FILES.get('image')
-#             if not image_file:
-#                 return JsonResponse({'success': False, 'message': 'Image manquante.'}, status=400)
-
-#             image = Image.open(image_file).convert('RGB')
-
-#             embedding = compute_robust_embedding_insightface(image)
-#             if embedding is None:
-#                 return JsonResponse({'success': False, 'message': 'Aucun visage détecté.'}, status=400)
-
-#             # Recherche dans la base
-#             matched_id, distance = get_closest_match(embedding, database_embeddings, ids)
-
-#             if matched_id is not None:
-#                 return JsonResponse({
-#                     'success': True,
-#                     'matched_user_id': matched_id,
-#                     'distance': float(distance),
-#                     'message': f'Utilisateur reconnu comme {matched_id}'
-#                 })
-#             else:
-#                 return JsonResponse({
-#                     'success': False,
-#                     'matched_user_id': None,
-#                     'distance': float(distance) if distance is not None else None,
-#                     'message': 'Aucune correspondance trouvée'
-#                 })
-
-#         except Exception as e:
-#             return JsonResponse({'success': False, 'error': str(e)}, status=500)
-#     else:
-#         return JsonResponse({'success': False, 'message': 'Méthode non autorisée.'}, status=405)
+import datetime
 
 
 @csrf_exempt
@@ -206,3 +135,116 @@ def face_stats(request):
         'success': False,
         'message': 'Méthode non autorisée'
     }, status=405)
+
+
+@csrf_exempt
+def delete_user(request):
+    """Endpoint corrigé pour supprimer un utilisateur"""
+    if request.method == 'DELETE':
+        try:
+            user_id = request.GET.get('user_id')
+            if not user_id:
+                return JsonResponse({'success': False, 'message': 'Paramètre user_id manquant'}, status=400)
+
+            # Charger les données
+            index = faiss.read_index('data/faiss_index.index')
+            with open('data/ids_mapping.pkl', 'rb') as f:
+                ids_mapping = pickle.load(f)
+
+            # Vérifier si l'utilisateur existe
+            if user_id not in ids_mapping:
+                return JsonResponse({'success': False, 'message': 'Utilisateur non trouvé'}, status=404)
+
+            # Trouver tous les indices correspondants
+            indices = [i for i, x in enumerate(ids_mapping) if x == user_id]
+
+            if not indices:
+                return JsonResponse({'success': False, 'message': 'Utilisateur non trouvé'}, status=404)
+
+            # Supprimer de FAISS (en ordre inverse pour éviter les décalages)
+            for idx in sorted(indices, reverse=True):
+                if isinstance(index, faiss.IndexFlatL2):
+                    ntotal = index.ntotal
+                    if ntotal == 1:
+                        # Cas spécial: suppression du dernier élément
+                        index.reset()
+                    else:
+                        # Reconstruire l'index sans l'élément supprimé
+                        xb = []
+                        for i in range(ntotal):
+                            if i != idx:
+                                vec = index.reconstruct(i)
+                                xb.append(vec)
+
+                        if xb:  # Vérifier qu'il reste des vecteurs
+                            xb = np.array(xb)
+                            index.reset()
+                            index.add(xb)
+                else:
+                    index.remove_ids(np.array([idx]))
+
+                # Supprimer du mapping
+                ids_mapping.pop(idx)
+
+            # Sauvegarder
+            faiss.write_index(index, 'data/faiss_index.index')
+            with open('data/ids_mapping.pkl', 'wb') as f:
+                pickle.dump(ids_mapping, f)
+
+            return JsonResponse({'success': True, 'message': f'Utilisateur {user_id} supprimé', 'remaining': len(ids_mapping)})
+
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    return JsonResponse({'success': False, 'message': 'Méthode non autorisée'}, status=405)
+
+
+@csrf_exempt
+def clear_database(request):
+    """Endpoint corrigé pour vider la base"""
+    if request.method == 'POST':
+        try:
+            dimension = 512  # Doit correspondre à votre modèle
+            index = faiss.IndexFlatL2(dimension)
+
+            # Réinitialiser complètement
+            faiss.write_index(index, 'data/faiss_index.index')
+            with open('data/ids_mapping.pkl', 'wb') as f:
+                pickle.dump([], f)
+
+            # Vérification
+            index = faiss.read_index('data/faiss_index.index')
+            with open('data/ids_mapping.pkl', 'rb') as f:
+                ids_mapping = pickle.load(f)
+
+            if index.ntotal == 0 and len(ids_mapping) == 0:
+                return JsonResponse({'success': True, 'message': 'Base complètement vidée'})
+            else:
+                return JsonResponse({'success': False, 'message': 'La suppression a échoué'}, status=500)
+
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)}, status=500)
+    return JsonResponse({'success': False, 'message': 'Méthode non autorisée'}, status=405)
+
+# Liste des users
+
+
+@csrf_exempt
+def list_users(request):
+    """Nouvel endpoint pour lister les utilisateurs"""
+    try:
+        with open('data/ids_mapping.pkl', 'rb') as f:
+            ids_mapping = pickle.load(f)
+
+        # Si vous stockez des timestamps, sinon générez une date fictive
+        users = [{
+            'id': uid,
+            'timestamp': datetime.now().isoformat()  # À adapter
+        } for uid in ids_mapping]
+
+        return JsonResponse({
+            'success': True,
+            'users': users,
+            'count': len(users)
+        })
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
