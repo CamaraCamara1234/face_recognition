@@ -72,9 +72,8 @@ FACE_RECOGNITION/
 
 ## ✅ Prérequis
 
-- **Python** ≥ 3.8  
-- **Node.js** ≥ 16  
-- **PostgreSQL** (optionnel pour production)  
+- **Python** ≥ 3.8 (dans mon cas j'utilise 3.10) 
+- **Node.js** ≥ 16  (dans mon cas j'utilise 22) 
 - **CUDA** (recommandé pour accélération GPU via InsightFace)
 
 ---
