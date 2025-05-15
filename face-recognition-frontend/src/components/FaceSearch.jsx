@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import Webcam from 'react-webcam';
 import axios from 'axios';
+import Swal from 'sweetalert2';
 
 const FaceSearch = () => {
   const [image, setImage] = useState(null);
@@ -41,7 +42,11 @@ const FaceSearch = () => {
 
   const handleSearch = async () => {
     if (!image) {
-      setError('Veuillez capturer ou uploader une image');
+      Swal.fire({
+        icon: 'error',
+        title: 'Erreur',
+        text: 'Veuillez capturer ou uploader une image',
+      });
       return;
     }
 
@@ -55,15 +60,34 @@ const FaceSearch = () => {
 
       const response = await axios.post('http://localhost:8000/search_face/', formData);
       setResult(response.data);
+      
+      if (response.data.success) {
+        Swal.fire({
+          title: "Succès!",
+          text: `Utilisateur ${response.data.user_id} reconnu avec ${response.data.percentage}% de similarité`,
+          icon: "success"
+        });
+      } else {
+        Swal.fire({
+          title: "Non reconnu",
+          text: `La similarité (${response.data.percentage}%) est en dessous du seuil requis (65%)`,
+          icon: "warning"
+        });
+      }
     } catch (err) {
-      setError(err.response?.data?.message || err.message);
+      const errorMsg = err.response?.data?.message || err.message;
+      setError(errorMsg);
+      Swal.fire({
+        icon: 'error',
+        title: 'Erreur',
+        text: errorMsg,
+      });
     } finally {
       setLoading(false);
     }
   };
 
   const getPercentageColor = (percentage) => {
-    console.log("pourcentage : ",percentage)
     if (percentage < 65) return 'error';
     if (percentage < 80) return 'warning';
     return 'success';
@@ -113,8 +137,7 @@ const FaceSearch = () => {
               alt="Captured"
               style={{ 
                 width: '100%',
-                height: '180',
-                heightMax:'180px',
+                height: '350px', // Même hauteur que la webcam
                 objectFit: 'cover',
                 borderRadius: '4px'
               }}
