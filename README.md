@@ -6,7 +6,7 @@
 ---
 
 ## 📁 Structure du Projet
-
+````
 FACE_RECOGNITION/
 ├── backend_api/ # API Django (serveur)
 │ ├── face_recognition/ # Application principale
@@ -31,6 +31,7 @@ FACE_RECOGNITION/
 │ │ └── FaceStats.jsx # Statistiques et visualisation
 │ └── App.js # Routing principal
 └── package.json
+``````
 
 
 
