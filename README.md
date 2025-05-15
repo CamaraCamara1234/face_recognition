@@ -90,35 +90,48 @@ cd FACE_RECOGNITION/backend_api
 python -m venv ../env
 source ../env/bin/activate        # Linux/Mac
 ../env/Scripts/activate           # Windows
+```
 
 # Installation des dépendances
+```bash
 pip install -r requirements.txt
+```
 
 # Initialisation de la base de données
+```bash
 python manage.py migrate
+```
 
 # Lancement du serveur
+```bash
 python manage.py runserver
-
+```
 # 🌐 Frontend
-
+```bash
 cd FACE_RECOGNITION_FRONTEND
+```
 
 # Installation des dépendances
+```bash
 npm install
+```
 
 # Démarrage de l'application
+```bash
 npm start
+```
 
 ### 📡 API - Endpoints disponibles
+```
 
 | Endpoint              | Méthode | Description                       |
 | --------------------- | ------- | --------------------------------- |
 | `/api/faces/register` | POST    | Enregistre un nouveau visage      |
 | `/api/faces/verify`   | POST    | Recherche un visage dans la base  |
 | `/api/faces/stats`    | GET     | Récupère les statistiques système |
+```
 
-### 📌 Remarques
+## 📌 Remarques
 
 Le seuil de reconnaissance peut être modifié dans la configuration backend.
 
