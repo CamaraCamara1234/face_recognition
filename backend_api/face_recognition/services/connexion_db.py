@@ -63,6 +63,66 @@ class FaceDB:
             return None, float(D[0][0])
         
         return self.ids_mapping[I[0][0]], float(D[0][0])
+    
+    def user_exists(self, user_id):
+        """Vérifie si l'utilisateur existe dans la base"""
+        return user_id in self.ids_mapping
+
+    def get_face_index(self, user_id):
+        """Retourne l'index de l'embedding pour un user_id donné"""
+        try:
+            return self.ids_mapping.index(user_id)
+        except ValueError:
+            return -1
+
+    def remove_face(self, user_id):
+        """Supprime un embedding de la base"""
+        idx = self.get_face_index(user_id)
+        if idx == -1:
+            return False
+        
+        # Crée un nouveau index sans l'embedding à supprimer
+        new_index = faiss.IndexFlatL2(self.dimension)
+        
+        # Récupère tous les embeddings sauf celui à supprimer
+        all_embeddings = self.index.reconstruct_n(0, self.index.ntotal)
+        mask = [i for i in range(len(self.ids_mapping)) if i != idx]
+        
+        if len(mask) > 0:
+            filtered_embeddings = all_embeddings[mask]
+            new_index.add(filtered_embeddings)
+        
+        # Met à jour les références
+        self.index = new_index
+        self.ids_mapping.pop(idx)
+        self.save_db()
+        return True
+
+    def update_face(self, user_id, new_embedding):
+        """Met à jour l'embedding pour un user_id donné"""
+        # 1. Supprime l'ancien embedding
+        self.remove_face(user_id)
+        
+        # 2. Ajoute le nouveau embedding
+        self.add_face(new_embedding, user_id)
+        
+        return True
+    
+    def get_face_embedding(self, user_id):
+        """Récupère l'embedding existant d'un utilisateur"""
+        idx = self.get_face_index(user_id)
+        if idx == -1:
+            return None
+            
+        # FAISS ne fournit pas directement une méthode get, donc on reconstruit tout
+        all_embeddings = self.index.reconstruct_n(0, self.index.ntotal)
+        return all_embeddings[idx]
+
+    def compare_embeddings(self, embedding1, embedding2):
+        """Calcule la similarité cosinus entre deux embeddings"""
+        embedding1 = np.array(embedding1).flatten()
+        embedding2 = np.array(embedding2).flatten()
+        return np.dot(embedding1, embedding2) / (np.linalg.norm(embedding1) * np.linalg.norm(embedding2))
 
 # Instance globale
 face_db = FaceDB()

@@ -23,8 +23,16 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('register_face/', csrf_exempt(register_face),
          name='regiter_face_api'),
+    path('update_face/', csrf_exempt(update_face),
+         name='update_face_api'),
+    path('process_pending_users/', csrf_exempt(process_pending_users),
+         name='process_pending_users_api'),
+    path('list_pending_users/', csrf_exempt(list_pending_users),
+         name='list_pending_users_api'),
     path('search_face/', csrf_exempt(verify_face),
          name='search_face_api'),
+    path('user_exists/', csrf_exempt(user_exists),
+         name='user_exists_api'),
     path('delete_user', csrf_exempt(delete_user),
          name='delete_user_api'),
     path('clear_database/', csrf_exempt(clear_database),
@@ -32,4 +40,4 @@ urlpatterns = [
     path('list_users/', csrf_exempt(list_users),
          name='list_users_api'),
     path('stats', face_stats, name='face_stats')
-]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

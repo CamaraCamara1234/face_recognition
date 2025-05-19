@@ -1,5 +1,20 @@
-import React, { useState, useRef } from 'react';
-import { Button, TextField, Box, Typography, CircularProgress, Paper, Alert, Container } from '@mui/material';
+import React, { useState, useRef, useEffect } from 'react';
+import { 
+  Button, 
+  TextField, 
+  Box, 
+  Typography, 
+  CircularProgress, 
+  Paper, 
+  Alert, 
+  Container,
+  Tabs,
+  Tab,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
+} from '@mui/material';
 import Webcam from 'react-webcam';
 import axios from 'axios';
 
@@ -8,6 +23,9 @@ const FaceRegister = () => {
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', severity: '' });
+  const [tabValue, setTabValue] = useState(0);
+  const [userExists, setUserExists] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const webcamRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -27,6 +45,29 @@ const FaceRegister = () => {
     }
   };
 
+  const checkUserExists = async () => {
+    if (!userId) return;
+    
+    try {
+      const response = await axios.get(`http://localhost:8000/user_exists/?user_id=${userId}`);
+      setUserExists(response.data.exists);
+    } catch (error) {
+      console.error("Error checking user existence:", error);
+      setUserExists(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (userId) {
+        checkUserExists();
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!userId || !image) {
@@ -34,44 +75,79 @@ const FaceRegister = () => {
       return;
     }
 
+    if (userExists && tabValue === 0) {
+      setConfirmOpen(true);
+      return;
+    }
+
+    await processSubmission();
+  };
+
+  const processSubmission = async () => {
     setLoading(true);
     setMessage({ text: '', severity: '' });
 
     try {
-      // Convert base64 to blob
       const blob = await fetch(image).then(res => res.blob());
-      
       const formData = new FormData();
       formData.append('user_id', userId);
       formData.append('image', blob, 'face.jpg');
 
-      const response = await axios.post('http://localhost:8000/register_face/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const endpoint = userExists ? 'update_face/' : 'register_face/';
+      const response = await axios.post(
+        `http://localhost:8000/${endpoint}`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
 
-      setMessage({ text: response.data.message, severity: 'success' });
-      setUserId('');
-      setImage(null);
+      setMessage({ 
+        text: response.data.message, 
+        severity: 'success',
+        details: userExists ? 'User face updated successfully' : 'New user registered successfully'
+      });
+      
+      if (!userExists) {
+        setUserId('');
+        setImage(null);
+      }
+      setUserExists(true);
     } catch (error) {
       const errorMsg = error.response?.data?.message || error.message;
-      setMessage({ text: errorMsg, severity: 'error' });
+      setMessage({ 
+        text: errorMsg, 
+        severity: 'error',
+        details: error.response?.data?.error || ''
+      });
     } finally {
       setLoading(false);
+      setConfirmOpen(false);
     }
+  };
+
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue);
+    setUserId('');
+    setImage(null);
+    setUserExists(false);
+    setMessage({ text: '', severity: '' });
   };
 
   return (
     <Container maxWidth="md" sx={{ mt: 4 }}>
       <Paper elevation={3} sx={{ p: 4 }}>
-        <Typography variant="h4" gutterBottom>
-          Register New Face
-        </Typography>
-        
+        <Tabs value={tabValue} onChange={handleTabChange} centered sx={{ mb: 3 }}>
+          <Tab label="Register New Face" />
+          <Tab label="Update Existing Face" />
+        </Tabs>
+
         {message.text && (
           <Alert severity={message.severity} sx={{ mb: 3 }}>
-            {message.text}
+            <Typography>{message.text}</Typography>
+            {message.details && <Typography variant="body2">{message.details}</Typography>}
           </Alert>
         )}
 
@@ -84,10 +160,19 @@ const FaceRegister = () => {
             onChange={(e) => setUserId(e.target.value)}
             margin="normal"
             required
+            helperText={
+              userExists && tabValue === 0 
+                ? 'This user already exists. Submitting will update their face data.'
+                : userExists && tabValue === 1
+                ? 'User found. Upload new face image to update.'
+                : !userExists && tabValue === 1
+                ? 'User not found. Please check the ID or register as new user.'
+                : ''
+            }
           />
 
           <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>
-            Capture or Upload Face Image
+            {tabValue === 0 ? 'Capture or Upload Face Image' : 'Capture or Upload New Face Image'}
           </Typography>
 
           <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 4 }}>
@@ -156,12 +241,33 @@ const FaceRegister = () => {
             fullWidth
             size="large"
             sx={{ mt: 4 }}
-            disabled={loading}
+            disabled={loading || (tabValue === 1 && !userExists)}
           >
-            {loading ? <CircularProgress size={24} /> : 'Register Face'}
+            {loading ? (
+              <CircularProgress size={24} />
+            ) : tabValue === 0 ? (
+              userExists ? 'Update Existing User' : 'Register New User'
+            ) : (
+              'Update User Face'
+            )}
           </Button>
         </Box>
       </Paper>
+
+      <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
+        <DialogTitle>Confirm User Update</DialogTitle>
+        <DialogContent>
+          <Typography>
+            User "{userId}" already exists. Do you want to update their face data?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+          <Button onClick={processSubmission} color="primary" autoFocus>
+            Confirm Update
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };
