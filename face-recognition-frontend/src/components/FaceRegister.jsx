@@ -6,7 +6,6 @@ import {
   Typography, 
   CircularProgress, 
   Paper, 
-  Alert, 
   Container,
   Tabs,
   Tab,
@@ -17,17 +16,18 @@ import {
 } from '@mui/material';
 import Webcam from 'react-webcam';
 import axios from 'axios';
+import Swal from 'sweetalert2';
 
 const FaceRegister = () => {
   const [userId, setUserId] = useState('');
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState({ text: '', severity: '' });
   const [tabValue, setTabValue] = useState(0);
   const [userExists, setUserExists] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const webcamRef = useRef(null);
   const fileInputRef = useRef(null);
+  const imageContainerRef = useRef(null);
 
   const captureImage = () => {
     const imageSrc = webcamRef.current.getScreenshot();
@@ -43,6 +43,15 @@ const FaceRegister = () => {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const showAlert = (title, text, icon) => {
+    Swal.fire({
+      title,
+      text,
+      icon,
+      confirmButtonColor: '#3085d6',
+    });
   };
 
   const checkUserExists = async () => {
@@ -65,13 +74,20 @@ const FaceRegister = () => {
     }, 500);
 
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  // Ajuster la hauteur de l'image téléchargée pour correspondre à la webcam
+  useEffect(() => {
+    if (imageContainerRef.current && webcamRef.current) {
+      const webcamHeight = webcamRef.current.video.videoHeight;
+      imageContainerRef.current.style.height = `${webcamHeight}px`;
+    }
+  }, [image]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!userId || !image) {
-      setMessage({ text: 'User ID and image are required', severity: 'error' });
+      showAlert('Error', 'User ID and image are required', 'error');
       return;
     }
 
@@ -85,7 +101,6 @@ const FaceRegister = () => {
 
   const processSubmission = async () => {
     setLoading(true);
-    setMessage({ text: '', severity: '' });
 
     try {
       const blob = await fetch(image).then(res => res.blob());
@@ -104,11 +119,11 @@ const FaceRegister = () => {
         }
       );
 
-      setMessage({ 
-        text: response.data.message, 
-        severity: 'success',
-        details: userExists ? 'User face updated successfully' : 'New user registered successfully'
-      });
+      showAlert(
+        'Success', 
+        userExists ? 'User face updated successfully' : 'New user registered successfully',
+        'success'
+      );
       
       if (!userExists) {
         setUserId('');
@@ -117,11 +132,7 @@ const FaceRegister = () => {
       setUserExists(true);
     } catch (error) {
       const errorMsg = error.response?.data?.message || error.message;
-      setMessage({ 
-        text: errorMsg, 
-        severity: 'error',
-        details: error.response?.data?.error || ''
-      });
+      showAlert('Error', errorMsg, 'error');
     } finally {
       setLoading(false);
       setConfirmOpen(false);
@@ -133,7 +144,6 @@ const FaceRegister = () => {
     setUserId('');
     setImage(null);
     setUserExists(false);
-    setMessage({ text: '', severity: '' });
   };
 
   return (
@@ -143,13 +153,6 @@ const FaceRegister = () => {
           <Tab label="Register New Face" />
           <Tab label="Update Existing Face" />
         </Tabs>
-
-        {message.text && (
-          <Alert severity={message.severity} sx={{ mb: 3 }}>
-            <Typography>{message.text}</Typography>
-            {message.details && <Typography variant="body2">{message.details}</Typography>}
-          </Alert>
-        )}
 
         <Box component="form" onSubmit={handleSubmit} sx={{ mt: 2 }}>
           <TextField
@@ -181,9 +184,13 @@ const FaceRegister = () => {
                 audio={false}
                 ref={webcamRef}
                 screenshotFormat="image/jpeg"
-                videoConstraints={{ facingMode: 'user' }}
+                videoConstraints={{ 
+                  facingMode: 'user',
+                  height: 480 // Fixer une hauteur pour la webcam
+                }}
                 width="100%"
                 height="auto"
+                style={{ maxHeight: '480px' }}
               />
               <Button
                 variant="contained"
@@ -196,12 +203,26 @@ const FaceRegister = () => {
               </Button>
             </Box>
 
-            <Box sx={{ flex: 1 }}>
+            <Box 
+              sx={{ 
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center'
+              }}
+              ref={imageContainerRef}
+            >
               {image ? (
                 <img
                   src={image}
                   alt="Captured"
-                  style={{ width: '100%', height: 'auto', borderRadius: '4px' }}
+                  style={{ 
+                    width: '100%', 
+                    height: '100%',
+                    objectFit: 'cover',
+                    borderRadius: '4px',
+                    maxHeight: '480px'
+                  }}
                 />
               ) : (
                 <Box
@@ -210,6 +231,10 @@ const FaceRegister = () => {
                     borderRadius: '4px',
                     p: 4,
                     textAlign: 'center',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}
                 >
                   <Typography>No image selected</Typography>
