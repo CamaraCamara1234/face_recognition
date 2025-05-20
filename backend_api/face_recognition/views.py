@@ -131,6 +131,13 @@ def register_face(request):
                     'message': 'user_id et image sont requis'
                 }, status=400)
 
+            # 2. Vérification que l'utilisateur existe dans FAISS
+            if face_db.user_exists(user_id):
+                return JsonResponse({
+                    'success': False,
+                    'message': f'L\'utilisateur {user_id} existe déjà'
+                }, status=404)
+
             # 2. Création du répertoire utilisateur si inexistant
             user_dir = os.path.join(settings.MEDIA_ROOT, 'data', user_id)
             os.makedirs(user_dir, exist_ok=True)
