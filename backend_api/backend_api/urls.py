@@ -19,6 +19,7 @@ from django.urls import path
 from face_recognition.views import *
 from django.views.decorators.csrf import csrf_exempt
 from django.conf.urls.static import static
+from api.views import *
 
 urlpatterns = [
     path('register_face/', csrf_exempt(register_face),
@@ -29,6 +30,7 @@ urlpatterns = [
          name='process_pending_users_api'),
     path('list_pending_users/', csrf_exempt(list_pending_users),
          name='list_pending_users_api'),
+     path('sync-images/', csrf_exempt(sync_passenger_images), name='sync_user_images'),
     path('search_face/', csrf_exempt(verify_face),
          name='search_face_api'),
     path('user_exists/', csrf_exempt(user_exists),
