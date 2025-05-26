@@ -107,6 +107,7 @@ const FaceRegister = () => {
       const formData = new FormData();
       formData.append('user_id', userId);
       formData.append('image', blob, 'face.jpg');
+      formData.append('source', 'web');
 
       const endpoint = userExists ? 'update_face/' : 'register_face/';
       const response = await axios.post(

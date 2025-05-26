@@ -74,6 +74,7 @@ def process_pending_users(request):
                         'user_id': user_id
                     })
                     mock_request.FILES['image'] = uploaded_file
+                    mock_request.FILES['source'] = 'db_passenger'
 
                     # Appeler register_face
                     from .views import register_face
@@ -124,6 +125,7 @@ def register_face(request):
             # 1. Validation des données
             user_id = request.POST.get('user_id')
             image_file = request.FILES.get('image')
+            source  = request.FILES.get('source')
 
             if not user_id or not image_file:
                 return JsonResponse({
@@ -143,7 +145,11 @@ def register_face(request):
             os.makedirs(user_dir, exist_ok=True)
 
             # 3. Sauvegarde de l'image originale
-            unique_filename = f"{uuid.uuid4().hex}.jpg"
+            if source == 'web':
+                unique_filename = f"{uuid.uuid4().hex}.jpg"
+            elif source == 'db_passenger':
+                filename_with_extension = image_file.name
+                unique_filename = f"{os.path.splitext(filename_with_extension)[0]}.jpg"
             image_path = os.path.join(user_dir, unique_filename)
 
             with open(image_path, 'wb+') as destination:
@@ -194,6 +200,7 @@ def update_face(request):
             # 1. Validation des données
             user_id = request.POST.get('user_id')
             image_file = request.FILES.get('image')
+            source = request.FILES.get('source')
 
             if not user_id or not image_file:
                 return JsonResponse({
@@ -257,7 +264,12 @@ def update_face(request):
 
             # 6. Sauvegarde de la nouvelle image
             os.makedirs(user_dir, exist_ok=True)
-            unique_filename = f"{uuid.uuid4().hex}.jpg"
+            if source == 'web':
+                unique_filename = f"{uuid.uuid4().hex}.jpg"
+            elif source == 'db_passenger':
+                filename_with_extension = image_file.name
+                unique_filename = f"{os.path.splitext(filename_with_extension)[0]}.jpg"
+            
             image_path = os.path.join(user_dir, unique_filename)
 
             with open(image_path, 'wb+') as destination:

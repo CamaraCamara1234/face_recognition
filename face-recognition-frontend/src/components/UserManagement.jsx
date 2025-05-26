@@ -31,6 +31,7 @@ const UserManagement = () => {
     clear: false,
     refresh: false,
     process: false,
+    sync: false,
   });
   const [message, setMessage] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
@@ -84,6 +85,31 @@ const UserManagement = () => {
         error
       );
       setPendingUsers([]);
+    }
+  };
+
+  // Synchronise les images
+  const handleSyncImages = async () => {
+    setLoading((prev) => ({ ...prev, sync: true }));
+    setMessage(null);
+
+    try {
+      const response = await axios.get("http://localhost:8000/sync-images/");
+      setMessage({
+        text: "Synchronisation des images terminée",
+        severity: "success",
+        details: response.data.message || "Opération réussie",
+      });
+      // Actualiser les données après la synchronisation
+      await fetchDatabaseStats();
+    } catch (error) {
+      setMessage({
+        text: "Erreur lors de la synchronisation",
+        severity: "error",
+        details: error.response?.data?.error || error.message,
+      });
+    } finally {
+      setLoading((prev) => ({ ...prev, sync: false }));
     }
   };
 
@@ -399,6 +425,23 @@ const UserManagement = () => {
         <Typography variant="subtitle2" gutterBottom sx={{ mb: 1 }}>
           Actions Administratives
         </Typography>
+        
+        {/* Nouveau bouton pour Charger les images */}
+        <Button
+          variant="contained"
+          color="secondary"
+          onClick={handleSyncImages}
+          disabled={loading.sync || loading.clear || loading.refresh || loading.process}
+          fullWidth
+          sx={{ py: 1, mb: 2 }}
+        >
+          {loading.sync ? (
+            <CircularProgress size={20} color="inherit" />
+          ) : (
+            "Charger les Images"
+          )}
+        </Button>
+        
         <Button
           variant="contained"
           color="error"
@@ -408,6 +451,7 @@ const UserManagement = () => {
             loading.clear ||
             loading.refresh ||
             loading.process ||
+            loading.sync ||
             stats?.count === 0
           }
           fullWidth
