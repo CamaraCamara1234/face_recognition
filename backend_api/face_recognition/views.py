@@ -150,6 +150,8 @@ def register_face(request):
             elif source == 'db_passenger':
                 filename_with_extension = image_file.name
                 unique_filename = f"{os.path.splitext(filename_with_extension)[0]}.jpg"
+            else:
+                unique_filename = f"{uuid.uuid4().hex}.jpg"
             image_path = os.path.join(user_dir, unique_filename)
 
             with open(image_path, 'wb+') as destination:
@@ -269,6 +271,8 @@ def update_face(request):
             elif source == 'db_passenger':
                 filename_with_extension = image_file.name
                 unique_filename = f"{os.path.splitext(filename_with_extension)[0]}.jpg"
+            else:
+                unique_filename = f"{uuid.uuid4().hex}.jpg"
             
             image_path = os.path.join(user_dir, unique_filename)
 
