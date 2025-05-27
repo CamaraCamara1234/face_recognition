@@ -32,7 +32,7 @@ urlpatterns = [
          name='list_pending_users_api'),
     path('sync-images/', csrf_exempt(sync_passenger_images),
          name='sync_user_images'),
-    path('search_face/', csrf_exempt(verify_face),
+    path('search_face/', csrf_exempt(verify_face_topn),
          name='search_face_api'),
     path('user_exists/', csrf_exempt(user_exists),
          name='user_exists_api'),
@@ -42,5 +42,5 @@ urlpatterns = [
          name='clear_database_api'),
     path('list_users/', csrf_exempt(list_users),
          name='list_users_api'),
-    path('stats', face_stats, name='face_stats')
+    path('statitistique/', csrf_exempt(face_stats), name='face_statitistique')
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

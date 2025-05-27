@@ -53,7 +53,7 @@ const UserManagement = () => {
 
     try {
       const [statsResponse, usersResponse] = await Promise.all([
-        axios.get("http://localhost:8000/stats"),
+        axios.get("http://localhost:8000/statitistique/"),
         axios
           .get("http://localhost:8000/list_users")
           .catch(() => ({ data: { users: [] } })),

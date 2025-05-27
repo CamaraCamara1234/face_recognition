@@ -64,6 +64,32 @@ class FaceDB:
         
         return self.ids_mapping[I[0][0]], float(D[0][0])
     
+    def search_face_topn(self, embedding, threshold=0.8, top_n=3):
+        """Recherche les top_n visages les plus proches sous le seuil donné"""
+        embedding = np.array(embedding).astype('float32').reshape(1, -1)
+        
+        # Rechercher les top_n correspondances
+        D, I = self.index.search(embedding, top_n)
+        
+        results = []
+        for i in range(top_n):
+            if I[0][i] == -1 or D[0][i] > threshold:
+                continue  # Ignorer les résultats non valides ou au-dessus du seuil
+            
+            user_id = self.ids_mapping[I[0][i]]
+            distance = float(D[0][i])
+            results.append((user_id, distance))
+        
+        # Si aucun résultat valide, retourner None pour le premier élément
+        if not results:
+            return [(None, float(D[0][0]))] if top_n == 1 else []
+        
+        # Pour maintenir la compatibilité avec l'ancienne version quand top_n=1
+        if top_n == 1:
+            return results[0]
+        
+        return results
+    
     def user_exists(self, user_id):
         """Vérifie si l'utilisateur existe dans la base"""
         return user_id in self.ids_mapping

@@ -23,7 +23,7 @@ const FaceStats = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.get('http://localhost:8000/stats');
+      const response = await axios.get('http://localhost:8000/statitistique/');
       setStats(response.data);
     } catch (err) {
       setError(err.response?.data?.error || err.message);

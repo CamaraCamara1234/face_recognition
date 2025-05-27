@@ -91,7 +91,7 @@ class PIDCheckService:
                 f"Erreur lors de la récupération des détails du passager {passenger_id}: {str(e)}")
             raise ConnectionError(
                 f"Échec de récupération des détails du passager: {str(e)}")
-        
+
     def save_passenger_image(self, national_identifier, passenger_id, image_data):
         """Sauvegarde l'image d'un passager en vidant le dossier existant au préalable"""
         if not image_data:
@@ -100,7 +100,8 @@ class PIDCheckService:
 
         try:
             # Créer le répertoire de destination
-            image_dir = Path(settings.MEDIA_ROOT) / "db_users" / national_identifier
+            image_dir = Path(settings.MEDIA_ROOT) / \
+                "db_users" / national_identifier
             image_dir.mkdir(parents=True, exist_ok=True)
 
             # Vider le répertoire avant de sauvegarder la nouvelle image
@@ -109,7 +110,8 @@ class PIDCheckService:
                     existing_file.unlink()
                     logger.info(f"Fichier supprimé : {existing_file}")
                 except Exception as e:
-                    logger.error(f"Échec suppression fichier {existing_file}: {str(e)}")
+                    logger.error(
+                        f"Échec suppression fichier {existing_file}: {str(e)}")
 
             # Décoder l'image base64
             header, encoded = image_data.split(",", 1)
@@ -124,7 +126,8 @@ class PIDCheckService:
             return str(image_path.relative_to(settings.MEDIA_ROOT))
 
         except Exception as e:
-            logger.error(f"Erreur sauvegarde image {passenger_id}: {str(e)}", exc_info=True)
+            logger.error(
+                f"Erreur sauvegarde image {passenger_id}: {str(e)}", exc_info=True)
             return None
 
     def process_all_passengers(self):
@@ -137,23 +140,28 @@ class PIDCheckService:
             passengers = self.get_passengers()
             results = []
 
+            print("taille : ", len(passengers))
             for passenger in passengers:
                 passenger_id = passenger.get('id')
                 if not passenger_id:
                     continue
 
                 try:
+                    print("*"*50)
+                    print(f"id : {passenger_id}")
                     # Récupération des détails
                     details = self.get_passenger_details(passenger_id)
-
+                    # print("details : ", details)
+                    print("*"*50)
                     # Extraction de l'image
-                    other_data = details.get('other', {})
+                    other_data = details.get(
+                        'passport', details.get('other', {}))
                     images = other_data.get('images', {})
                     image_key = next(
                         (k for k in images.keys() if k.startswith('Image_')), None)
                     image_data = images.get(image_key) if image_key else None
-                    identifier = other_data.get('national_identifier',
-                                                other_data.get('document_number', {}))
+                    identifier = other_data.get('document_number',
+                                                other_data.get('national_identifier', {}))
 
                     # Sauvegarde de l'image
                     image_path = self.save_passenger_image(

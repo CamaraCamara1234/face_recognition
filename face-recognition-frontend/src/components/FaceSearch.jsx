@@ -11,6 +11,9 @@ import {
   Paper,
   Grid,
   Avatar,
+  Stack,
+  Divider,
+  Chip
 } from "@mui/material";
 import Webcam from "react-webcam";
 import axios from "axios";
@@ -18,7 +21,7 @@ import Swal from "sweetalert2";
 
 const FaceSearch = () => {
   const [image, setImage] = useState(null);
-  const [result, setResult] = useState(null);
+  const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const webcamRef = React.useRef(null);
@@ -27,7 +30,7 @@ const FaceSearch = () => {
   const captureImage = () => {
     const imageSrc = webcamRef.current.getScreenshot();
     setImage(imageSrc);
-    setResult(null);
+    setResults(null);
   };
 
   const handleFileChange = (e) => {
@@ -36,7 +39,7 @@ const FaceSearch = () => {
       const reader = new FileReader();
       reader.onload = (event) => {
         setImage(event.target.result);
-        setResult(null);
+        setResults(null);
       };
       reader.readAsDataURL(file);
     }
@@ -64,19 +67,16 @@ const FaceSearch = () => {
         "http://localhost:8000/search_face/",
         formData
       );
-      setResult(response.data);
+      setResults(response.data);
 
-      if (response.data.success) {
+      if (response.data.matched) {
+        const topMatch = response.data.matches[0];
         Swal.fire({
           title: "Succès!",
-          text: `Utilisateur ${response.data.user_id} reconnu avec ${response.data.percentage}% de similarité`,
+          html: `<b>${topMatch.message}</b><br/>
+                 ID Passager: <b>${topMatch.passenger_id}</b><br/>
+                 Similarité: <b>${topMatch.percentage}%</b>`,
           icon: "success",
-        });
-      } else {
-        Swal.fire({
-          title: "Non reconnu",
-          text: `La similarité (${response.data.percentage}%) est en dessous du seuil requis (65%)`,
-          icon: "warning",
         });
       }
     } catch (err) {
@@ -98,13 +98,26 @@ const FaceSearch = () => {
     return "success";
   };
 
+  const getMatchBadge = (index) => {
+    const colors = ["success", "warning", "info"];
+    const labels = ["1ère", "2ème", "3ème"];
+    return (
+      <Chip 
+        label={`${labels[index]} place`}
+        color={colors[index]}
+        size="small"
+        sx={{ ml: 1 }}
+      />
+    );
+  };
+
   return (
-    <Paper elevation={3} sx={{ p: 2, mt: 2 }}>
-      <Typography variant="h6" gutterBottom sx={{ mb: 1, fontSize: "1.1rem" }}>
+    <Paper elevation={3} sx={{ p: 3, mt: 2, borderRadius: 2 }}>
+      <Typography variant="h6" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
         Reconnaissance Faciale
       </Typography>
 
-      <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+      <Box sx={{ display: "flex", gap: 3, mb: 3 }}>
         {/* Colonne Webcam */}
         <Box sx={{ flex: 1 }}>
           <Webcam
@@ -114,9 +127,10 @@ const FaceSearch = () => {
             videoConstraints={{ facingMode: "user" }}
             style={{
               width: "100%",
-              borderRadius: "4px",
-              height: "350px",
+              borderRadius: "8px",
+              height: "300px",
               objectFit: "cover",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
             }}
           />
           <Button
@@ -124,13 +138,14 @@ const FaceSearch = () => {
             fullWidth
             onClick={captureImage}
             sx={{
-              mt: 1,
-              py: 0.5,
-              fontSize: "0.75rem",
+              mt: 2,
+              py: 1,
+              borderRadius: "6px",
+              textTransform: "none",
+              fontWeight: 500
             }}
-            size="small"
           >
-            Capturer
+            Capturer l'image
           </Button>
         </Box>
 
@@ -142,25 +157,26 @@ const FaceSearch = () => {
               alt="Captured"
               style={{
                 width: "100%",
-                height: "350px",
+                height: "300px",
                 objectFit: "cover",
-                borderRadius: "4px",
+                borderRadius: "8px",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
               }}
             />
           ) : (
             <Box
               sx={{
-                border: "1px dashed #ccc",
-                borderRadius: "4px",
-                height: "350px",
+                border: "2px dashed #ddd",
+                borderRadius: "8px",
+                height: "300px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                bgcolor: "#f5f5f5",
+                bgcolor: "#fafafa",
               }}
             >
-              <Typography variant="caption" color="text.secondary">
-                Aperçu
+              <Typography variant="body2" color="text.secondary">
+                Aperçu de l'image capturée
               </Typography>
             </Box>
           )}
@@ -169,13 +185,14 @@ const FaceSearch = () => {
             fullWidth
             onClick={() => fileInputRef.current.click()}
             sx={{
-              mt: 1,
-              py: 0.5,
-              fontSize: "0.75rem",
+              mt: 2,
+              py: 1,
+              borderRadius: "6px",
+              textTransform: "none",
+              fontWeight: 500
             }}
-            size="small"
           >
-            Uploader
+            Uploader une image
           </Button>
           <input
             type="file"
@@ -192,176 +209,139 @@ const FaceSearch = () => {
         color="primary"
         fullWidth
         sx={{
-          py: 0.6,
-          fontSize: "0.75rem",
-          mb: 1,
+          py: 1.5,
+          borderRadius: "6px",
+          textTransform: "none",
+          fontWeight: 600,
+          fontSize: "1rem",
+          mb: 2,
+          boxShadow: "none",
+          "&:hover": {
+            boxShadow: "none"
+          }
         }}
         onClick={handleSearch}
         disabled={loading || !image}
-        size="small"
       >
-        {loading ? <CircularProgress size={16} /> : "Rechercher"}
+        {loading ? <CircularProgress size={24} color="inherit" /> : "Lancer la reconnaissance"}
       </Button>
 
       {error && (
-        <Alert severity="error" sx={{ py: 0.5, fontSize: "0.75rem" }}>
+        <Alert severity="error" sx={{ mb: 3, borderRadius: "6px" }}>
           {error}
         </Alert>
       )}
 
-      {result && (
-        <Card
-          sx={{
-            mt: 1,
-            borderRadius: "4px",
-            width: "100%",
-            maxWidth: "800px",
-            marginLeft: "auto",
-            marginRight: "auto",
-          }}
-        >
-          <CardContent sx={{ p: 1 }}>
-            <Grid container spacing={2}>
-              {/* Colonne Image */}
-              {result.user_image && (
-                <Grid item xs={4}>
-                  {" "}
-                  {/* Réduit à 4 colonnes sur 12 pour l'image */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      height: "100%",
-                    }}
-                  >
-                    <Avatar
-                      src={result.user_image}
-                      sx={{
-                        width: 100,
-                        height: 100,
-                        mb: 1,
-                      }}
-                    />
-                    <Typography variant="caption" color="text.secondary">
-                      Photo de référence
-                    </Typography>
-                  </Box>
-                </Grid>
-              )}
+      {results && (
+        <Box sx={{ mt: 3 }}>
+          <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 600 }}>
+            {results.message} (seuil: {results.threshold.toFixed(2)})
+          </Typography>
+          
+          <Stack spacing={2}>
+            {results.matches.map((match, index) => (
+              <Card 
+                key={index}
+                sx={{
+                  borderRadius: "8px",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.08)",
+                  borderLeft: `4px solid ${
+                    index === 0 ? "#4caf50" : 
+                    index === 1 ? "#ff9800" : 
+                    "#2196f3"
+                  }`
+                }}
+              >
+                <CardContent sx={{ p: 2 }}>
+                  <Grid container spacing={2} alignItems="center">
+                    {/* Photo de profil */}
+                    <Grid item xs={3}>
+                      <Box sx={{ 
+                        display: "flex", 
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        height: "100%"
+                      }}>
+                        <Avatar
+                          src={match.user_image}
+                          sx={{
+                            width: 80,
+                            height: 80,
+                            mb: 1,
+                            border: "2px solid #eee"
+                          }}
+                        />
+                        <Typography variant="body2" color="text.secondary">
+                          {match.user_id}
+                        </Typography>
+                      </Box>
+                    </Grid>
 
-              {/* Colonne Résultats - Prend tout l'espace restant */}
-              <Grid item xs={result.user_image ? 8 : 12}>
-                {" "}
-                {/* 8 colonnes quand il y a une image, 12 sinon */}
-                <Box
-                  sx={{
-                    display: "flex",
-                    flexDirection: "column",
-                    height: "100%",
-                    justifyContent:
-                      "space-between" /* Répartit l'espace verticalement */,
-                  }}
-                >
-                  <Typography
-                    variant="subtitle2"
-                    sx={{ fontWeight: 600, mb: 1 }}
-                  >
-                    Résultats
-                  </Typography>
+                    {/* Détails de la correspondance */}
+                    <Grid item xs={9}>
+                      <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                          {match.message}
+                        </Typography>
+                        {getMatchBadge(index)}
+                      </Box>
 
-                  {result.success ? (
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        <strong>{result.user_id}</strong>
-                      </Typography>
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2">
+                          <strong>ID Passager:</strong> {match.passenger_id}
+                        </Typography>
+                      </Box>
 
                       <Box sx={{ mb: 2 }}>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 1,
-                            mb: 1,
-                          }}
-                        >
+                        <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                           <LinearProgress
                             variant="determinate"
-                            value={result.percentage}
-                            color={getPercentageColor(result.percentage)}
+                            value={match.percentage}
+                            color={getPercentageColor(match.percentage)}
                             sx={{
-                              height: 10 /* Un peu plus épais */,
+                              height: 10,
                               flexGrow: 1,
-                              borderRadius: "3px",
+                              borderRadius: "5px",
+                              mr: 2
                             }}
                           />
                           <Typography
                             variant="body1"
-                            sx={{ minWidth: "40px", fontWeight: "bold" }}
+                            sx={{ 
+                              minWidth: "50px", 
+                              fontWeight: "bold",
+                              color: getPercentageColor(match.percentage) === "error" ? 
+                                "#f44336" : 
+                                getPercentageColor(match.percentage) === "warning" ? 
+                                "#ff9800" : 
+                                "#4caf50"
+                            }}
                           >
-                            {result.percentage}%
+                            {match.percentage}%
                           </Typography>
                         </Box>
 
                         <Grid container spacing={1}>
                           <Grid item xs={6}>
                             <Typography variant="body2" color="text.secondary">
-                              Distance: {result.distance.toFixed(2)}
+                              <strong>Distance:</strong> {match.distance.toFixed(4)}
                             </Typography>
                           </Grid>
                           <Grid item xs={6}>
                             <Typography variant="body2" color="text.secondary">
-                              Seuil: {result.threshold.toFixed(2)}
+                              <strong>Seuil:</strong> {results.threshold.toFixed(2)}
                             </Typography>
                           </Grid>
                         </Grid>
                       </Box>
-                    </Box>
-                  ) : (
-                    <Box sx={{ flexGrow: 1 }}>
-                      <Typography variant="body2" color="error" sx={{ mb: 1 }}>
-                        Non reconnu
-                      </Typography>
-                      {result.percentage > 0 && (
-                        <Box>
-                          <Box
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 1,
-                              mb: 1,
-                            }}
-                          >
-                            <LinearProgress
-                              variant="determinate"
-                              value={result.percentage}
-                              color={getPercentageColor(result.percentage)}
-                              sx={{
-                                height: 10,
-                                flexGrow: 1,
-                                borderRadius: "3px",
-                              }}
-                            />
-                            <Typography
-                              variant="body1"
-                              sx={{ minWidth: "40px", fontWeight: "bold" }}
-                            >
-                              {result.percentage}%
-                            </Typography>
-                          </Box>
-                          <Typography variant="body2" color="text.secondary">
-                            (seuil minimum à 65%)
-                          </Typography>
-                        </Box>
-                      )}
-                    </Box>
-                  )}
-                </Box>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        </Box>
       )}
     </Paper>
   );

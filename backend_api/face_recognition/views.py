@@ -125,7 +125,7 @@ def register_face(request):
             # 1. Validation des données
             user_id = request.POST.get('user_id')
             image_file = request.FILES.get('image')
-            source  = request.FILES.get('source')
+            source = request.POST.get('source')
 
             if not user_id or not image_file:
                 return JsonResponse({
@@ -135,16 +135,44 @@ def register_face(request):
 
             # 2. Vérification que l'utilisateur existe dans FAISS
             if face_db.user_exists(user_id):
-                return JsonResponse({
-                    'success': False,
-                    'message': f'L\'utilisateur {user_id} existe déjà'
-                }, status=404)
+                if source == 'db_passenger':
+                    # Vérification du nom de l'image
+                    user_dir = os.path.join(
+                        settings.MEDIA_ROOT, 'data', user_id)
+                    requested_image_name = f"{os.path.splitext(image_file.name)[0]}.jpg"
 
-            # 2. Création du répertoire utilisateur si inexistant
+                    if os.path.exists(user_dir):
+                        existing_images = os.listdir(user_dir)
+                        if requested_image_name in existing_images:
+                            return JsonResponse({
+                                'success': False,
+                                'message': f'Une image avec le même nom ({requested_image_name}) existe déjà pour cet utilisateur',
+                                'user_id': user_id
+                            }, status=400)
+
+                    # Créer une requête POST simulée pour update_face
+                    from django.test import RequestFactory
+                    factory = RequestFactory()
+                    mock_request = factory.post('/update_face/', {
+                        'user_id': user_id,
+                        'source': source
+                    })
+                    mock_request.FILES = request.FILES  # Transférer les fichiers
+
+                    # Appeler update_face
+                    from .views import update_face
+                    return update_face(mock_request)
+                else:
+                    return JsonResponse({
+                        'success': False,
+                        'message': f'L\'utilisateur {user_id} existe déjà'
+                    }, status=404)
+
+            # 3. Création du répertoire utilisateur si inexistant
             user_dir = os.path.join(settings.MEDIA_ROOT, 'data', user_id)
             os.makedirs(user_dir, exist_ok=True)
 
-            # 3. Sauvegarde de l'image originale
+            # 4. Sauvegarde de l'image originale
             if source == 'web':
                 unique_filename = f"{uuid.uuid4().hex}.jpg"
             elif source == 'db_passenger':
@@ -158,7 +186,7 @@ def register_face(request):
                 for chunk in image_file.chunks():
                     destination.write(chunk)
 
-            # 4. Traitement de l'image
+            # 5. Traitement de l'image
             image = Image.open(image_file).convert('RGB')
             embedding = compute_robust_embedding_insightface(image)
 
@@ -171,7 +199,7 @@ def register_face(request):
                     'message': 'Aucun visage détecté dans l\'image'
                 }, status=400)
 
-            # 5. Enregistrement dans FAISS
+            # 6. Enregistrement dans FAISS
             face_db.add_face(embedding, user_id)
 
             return JsonResponse({
@@ -273,7 +301,7 @@ def update_face(request):
                 unique_filename = f"{os.path.splitext(filename_with_extension)[0]}.jpg"
             else:
                 unique_filename = f"{uuid.uuid4().hex}.jpg"
-            
+
             image_path = os.path.join(user_dir, unique_filename)
 
             with open(image_path, 'wb+') as destination:
@@ -305,8 +333,8 @@ def update_face(request):
 
 
 @csrf_exempt
-def verify_face(request):
-    """Endpoint pour reconnaître un visage"""
+def verify_face_topn(request):
+    """Endpoint pour reconnaître un visage et retourner le top 3 des correspondances"""
     if request.method == 'POST':
         try:
             image_file = request.FILES.get('image')
@@ -327,55 +355,74 @@ def verify_face(request):
                     'message': 'Aucun visage détecté dans l\'image'
                 }, status=400)
 
-            matched_id, distance = face_db.search_face(embedding, threshold)
-            percentage = max(0, min(100, 100 - (distance / threshold) * 35))
+            # Récupérer les top 3 correspondances
+            matches = face_db.search_face_topn(embedding, threshold, top_n=3)
 
+            # Si c'est un tuple unique (ancienne version), le convertir en liste
+            if isinstance(matches, tuple):
+                matches = [matches] if matches[0] is not None else []
+
+            # Préparer les données de réponse
+            matches_data = []
+            for match in matches:
+                matched_id, distance = match
+                percentage = max(
+                    0, min(100, 100 - (distance / threshold) * 35))
+
+                match_data = {
+                    'user_id': matched_id,
+                    'passenger_id': None,  # Initialisé à None par défaut
+                    'distance': distance,
+                    'percentage': round(percentage, 1),
+                    'message': f'Visage reconnu: {matched_id}' if matched_id else 'Aucune correspondance'
+                }
+
+                # Ajouter l'image et passenger_id si l'utilisateur est identifié
+                if matched_id:
+                    user_dir = os.path.join(
+                        settings.MEDIA_ROOT, 'data', matched_id)
+                    if os.path.exists(user_dir):
+                        try:
+                            image_files = [
+                                f for f in os.listdir(user_dir)
+                                if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+                            ]
+
+                            if image_files:
+                                image_files.sort(
+                                    key=lambda x: os.path.getmtime(
+                                        os.path.join(user_dir, x)),
+                                    reverse=True
+                                )
+                                latest_image = image_files[0]
+                                image_path = os.path.join(
+                                    user_dir, latest_image)
+
+                                # Extraire le passenger_id (nom du fichier sans extension)
+                                passenger_id = os.path.splitext(
+                                    latest_image)[0]
+                                match_data['passenger_id'] = passenger_id
+
+                                with open(image_path, "rb") as img_file:
+                                    encoded_image = base64.b64encode(
+                                        img_file.read()).decode('utf-8')
+
+                                match_data['user_image'] = f"data:image/jpeg;base64,{encoded_image}"
+                        except Exception as e:
+                            print(
+                                f"Erreur lors de la récupération de l'image: {str(e)}")
+
+                matches_data.append(match_data)
+
+            # Préparer la réponse globale
+            has_match = any(match['user_id'] for match in matches_data)
             response_data = {
-                'success': matched_id is not None,
-                'matched': matched_id is not None,
-                'user_id': matched_id,
-                'distance': distance,
-                'percentage': round(percentage, 1),
+                'success': has_match,
+                'matched': has_match,
+                'matches': matches_data,
                 'threshold': threshold,
-                'message': (
-                    f'Visage reconnu: {matched_id}' if matched_id
-                    else 'Aucune correspondance trouvée'
-                )
+                'message': 'Correspondances trouvées' if has_match else 'Aucune correspondance trouvée'
             }
-
-            # Si un utilisateur est identifié, chercher sa dernière image enregistrée
-            if matched_id:
-                user_dir = os.path.join(
-                    settings.MEDIA_ROOT, 'data', matched_id)
-
-                if os.path.exists(user_dir):
-                    # Trouver le fichier image le plus récent
-                    try:
-                        image_files = [
-                            f for f in os.listdir(user_dir)
-                            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
-                        ]
-
-                        if image_files:
-                            # Trier par date de modification (le plus récent en premier)
-                            image_files.sort(
-                                key=lambda x: os.path.getmtime(
-                                    os.path.join(user_dir, x)),
-                                reverse=True
-                            )
-                            latest_image = image_files[0]
-                            image_path = os.path.join(user_dir, latest_image)
-
-                            # Encoder l'image en base64
-                            with open(image_path, "rb") as image_file:
-                                encoded_image = base64.b64encode(
-                                    image_file.read()).decode('utf-8')
-
-                            response_data['user_image'] = f"data:image/jpeg;base64,{encoded_image}"
-                    except Exception as e:
-                        # Ne pas échouer si problème avec l'image
-                        print(
-                            f"Erreur lors de la récupération de l'image: {str(e)}")
 
             return JsonResponse(response_data)
 
