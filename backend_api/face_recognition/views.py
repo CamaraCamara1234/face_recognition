@@ -71,10 +71,11 @@ def process_pending_users(request):
                     from django.test import RequestFactory
                     factory = RequestFactory()
                     mock_request = factory.post('/register_face/', {
-                        'user_id': user_id
+                        'user_id': user_id,
+                        'source': 'db_passenger'
                     })
                     mock_request.FILES['image'] = uploaded_file
-                    mock_request.FILES['source'] = 'db_passenger'
+                    # mock_request.FILES['source'] = 'db_passenger'
 
                     # Appeler register_face
                     from .views import register_face
@@ -133,12 +134,13 @@ def register_face(request):
                     'message': 'user_id et image sont requis'
                 }, status=400)
 
+            # print("=========> source : ", source)
             # 2. Vérification que l'utilisateur existe dans FAISS
             if face_db.user_exists(user_id):
                 if source == 'db_passenger':
                     # Vérification du nom de l'image
                     user_dir = os.path.join(
-                        settings.MEDIA_ROOT, 'data', user_id)
+                        settings.MEDIA_ROOT, 'db_users', user_id)
                     requested_image_name = f"{os.path.splitext(image_file.name)[0]}.jpg"
 
                     if os.path.exists(user_dir):
