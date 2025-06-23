@@ -32,6 +32,7 @@ const UserManagement = () => {
     refresh: false,
     process: false,
     sync: false,
+    processImages: false,
   });
   const [message, setMessage] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
@@ -110,6 +111,31 @@ const UserManagement = () => {
       });
     } finally {
       setLoading((prev) => ({ ...prev, sync: false }));
+    }
+  };
+
+  // Traite les images
+  const handleProcessImages = async () => {
+    setLoading((prev) => ({ ...prev, processImages: true }));
+    setMessage(null);
+
+    try {
+      const response = await axios.post("http://localhost:8000/load_process_images/");
+      setMessage({
+        text: "Traitement des images terminé",
+        severity: "success",
+        details: response.data.message || "Opération réussie",
+      });
+      // Actualiser les données après le traitement
+      await fetchDatabaseStats();
+    } catch (error) {
+      setMessage({
+        text: "Erreur lors du traitement des images",
+        severity: "error",
+        details: error.response?.data?.error || error.message,
+      });
+    } finally {
+      setLoading((prev) => ({ ...prev, processImages: false }));
     }
   };
 
@@ -426,21 +452,38 @@ const UserManagement = () => {
           Actions Administratives
         </Typography>
         
-        {/* Nouveau bouton pour Charger les images */}
-        <Button
-          variant="contained"
-          color="secondary"
-          onClick={handleSyncImages}
-          disabled={loading.sync || loading.clear || loading.refresh || loading.process}
-          fullWidth
-          sx={{ py: 1, mb: 2 }}
-        >
-          {loading.sync ? (
-            <CircularProgress size={20} color="inherit" />
-          ) : (
-            "Charger les Images"
-          )}
-        </Button>
+        {/* Boutons pour les opérations sur les images */}
+        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={handleSyncImages}
+            disabled={loading.sync || loading.clear || loading.refresh || loading.process}
+            fullWidth
+            sx={{ py: 1 }}
+          >
+            {loading.sync ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : (
+              "Charger les Images"
+            )}
+          </Button>
+          
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleProcessImages}
+            disabled={loading.processImages || loading.clear || loading.refresh || loading.process}
+            fullWidth
+            sx={{ py: 1 }}
+          >
+            {loading.processImages ? (
+              <CircularProgress size={20} color="inherit" />
+            ) : (
+              "Charger et Traiter Images"
+            )}
+          </Button>
+        </Box>
         
         <Button
           variant="contained"

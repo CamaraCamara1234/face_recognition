@@ -28,6 +28,8 @@ urlpatterns = [
          name='update_face_api'),
     path('process_pending_users/', csrf_exempt(process_pending_users),
          name='process_pending_users_api'),
+     path('load_process_images/', csrf_exempt(sync_and_process_all),
+         name='load_process_images_api'),
     path('list_pending_users/', csrf_exempt(list_pending_users),
          name='list_pending_users_api'),
     path('sync-images/', csrf_exempt(sync_passenger_images),

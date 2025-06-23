@@ -13,10 +13,6 @@ import datetime
 import os
 import base64
 import uuid
-import shutil
-
-
-import os
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
@@ -24,8 +20,31 @@ import uuid
 from PIL import Image
 import shutil
 from django.core.files.uploadedfile import SimpleUploadedFile
+import onnxruntime as ort
+from typing import Dict, List
 
 
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import os
+import shutil
+import logging
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.conf import settings
+
+from api.services import PIDCheckService
+from .services.service_detection_extraction import *
+from django.test import RequestFactory
+
+logger = logging.getLogger(__name__)
+
+
+##### ###################################################
+# train model on loaded images from api
+# #######################################################
 @csrf_exempt
 def process_pending_users(request):
     """Endpoint pour traiter les utilisateurs en attente dans db_users"""
@@ -118,6 +137,309 @@ def process_pending_users(request):
     }, status=405)
 
 
+######################################################
+# Load images and train model
+# ####################################################
+@api_view(['POST'])
+def sync_and_process_all(request):
+    """
+    Endpoint combiné qui:
+    1. Synchronise toutes les images des passagers
+    2. Traite les utilisateurs en attente dans db_users
+    """
+    # Partie 1: Synchronisation des images des passagers
+    passenger_results = {}
+    try:
+        service = PIDCheckService()
+        passenger_results = service.process_all_passengers()
+        success_count = sum(
+            1 for r in passenger_results if r.get('status') == 'success')
+        passenger_response = {
+            "status": "completed",
+            "passengers_processed": len(passenger_results),
+            "images_saved": success_count,
+            "details": passenger_results
+        }
+    except Exception as e:
+        logger.error(f"Erreur dans sync_passenger_images: {str(e)}")
+        passenger_response = {
+            "status": "error",
+            "message": str(e)
+        }
+        return Response({
+            "sync_passengers": passenger_response,
+            "process_pending_users": {
+                "status": "not_executed",
+                "message": "Arrêté en raison de l'échec de sync_passenger_images"
+            }
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # Partie 2: Traitement des utilisateurs en attente
+    pending_users_response = {}
+    try:
+        db_users_dir = os.path.join(settings.MEDIA_ROOT, 'db_users')
+        if not os.path.exists(db_users_dir):
+            pending_users_response = {
+                'success': True,
+                'message': 'Aucun utilisateur en attente',
+                'processed': 0
+            }
+        else:
+            processed_users = []
+            failed_users = []
+            user_dirs = [d for d in os.listdir(db_users_dir)
+                         if os.path.isdir(os.path.join(db_users_dir, d))]
+
+            for user_id in user_dirs:
+                user_dir = os.path.join(db_users_dir, user_id)
+                image_files = [f for f in os.listdir(user_dir)
+                               if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+
+                if not image_files:
+                    shutil.rmtree(user_dir)
+                    continue
+
+                # Prendre la première image trouvée
+                image_path = os.path.join(user_dir, image_files[0])
+
+                try:
+                    with open(image_path, 'rb') as img_file:
+                        image_data = img_file.read()
+
+                    uploaded_file = SimpleUploadedFile(
+                        name=image_files[0],
+                        content=image_data,
+                        content_type='image/jpeg'
+                    )
+
+                    factory = RequestFactory()
+                    mock_request = factory.post('/register_face/', {
+                        'user_id': user_id,
+                        'source': 'db_passenger'
+                    })
+                    mock_request.FILES['image'] = uploaded_file
+
+                    from .views import register_face
+                    response = register_face(mock_request)
+
+                    if response.status_code == 200:
+                        shutil.rmtree(user_dir)
+                        processed_users.append(user_id)
+                    else:
+                        failed_users.append({
+                            'user_id': user_id,
+                            'error': response.json().get('message')
+                        })
+
+                except Exception as e:
+                    failed_users.append({
+                        'user_id': user_id,
+                        'error': str(e)
+                    })
+
+            pending_users_response = {
+                'success': True,
+                'message': 'Traitement terminé',
+                'processed': len(processed_users),
+                'successful_users': processed_users,
+                'failed_users': failed_users
+            }
+
+    except Exception as e:
+        pending_users_response = {
+            'success': False,
+            'error': str(e),
+            'message': 'Erreur lors du traitement'
+        }
+
+    # Retourner les deux résultats combinés
+    return Response({
+        "sync_passengers": passenger_response,
+        "process_pending_users": pending_users_response
+    }, status=status.HTTP_200_OK)
+
+
+##### ###################################################
+# loading, detection, extration and train
+# #######################################################
+@api_view(['POST'])
+def sync_and_process_all(request):
+    """
+    Endpoint amélioré qui:
+    1. Vide la base de données (appel à clear_database)
+    2. Synchronise les images des passagers
+    3. Traite les utilisateurs en attente avec:
+       - Classification des documents
+       - Extraction spéciale pour old_cni_recto
+    """
+    # Initialisation des services
+    doc_classifier = DocumentClassifier()
+    old_cni_extractor = OldCNIExtractor()
+    pid_service = PIDCheckService()
+
+    # # Étape 0: Vider la base de données avant traitement
+    # try:
+    #     clear_request = RequestFactory().post('/clear_database/')
+    #     clear_response = clear_database(clear_request)
+    #     if clear_response.status_code != status.HTTP_200_OK:
+    #         logger.error("Échec du vidage de la base de données")
+    #         return Response({
+    #             "status": "error",
+    #             "message": "Échec du vidage initial de la base de données"
+    #         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    # except Exception as e:
+    #     logger.error(f"Erreur lors du vidage de la base: {str(e)}")
+    #     return Response({
+    #         "status": "error",
+    #         "message": f"Exception lors du vidage de la base: {str(e)}"
+    #     }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # Partie 1: Synchronisation des passagers
+    try:
+        passenger_results = pid_service.process_all_passengers()
+        passenger_response = {
+            "status": "completed",
+            "passengers_processed": len(passenger_results),
+            "images_saved": sum(1 for r in passenger_results if r.get('status') == 'success'),
+            "details": passenger_results,
+            "database_cleared": True
+        }
+    except Exception as e:
+        logger.error(f"Erreur sync_passenger_images: {str(e)}")
+        return Response({
+            "status": "error",
+            "message": f"Échec synchronisation: {str(e)}",
+            "database_cleared": True
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # Partie 2: Traitement des utilisateurs en attente
+    db_users_dir = os.path.join(settings.MEDIA_ROOT, 'db_users')
+    if not os.path.exists(db_users_dir):
+        return Response({
+            "sync_passengers": passenger_response,
+            "process_pending_users": {
+                "status": "completed",
+                "message": "Aucun utilisateur en attente",
+                "processed": 0
+            }
+        })
+
+    processed_users = []
+    failed_users = []
+
+    for user_id in os.listdir(db_users_dir):
+        user_dir = os.path.join(db_users_dir, user_id)
+        if not os.path.isdir(user_dir):
+            continue
+
+        image_files = [f for f in os.listdir(user_dir)
+                       if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+
+        if not image_files:
+            shutil.rmtree(user_dir)
+            continue
+
+        image_path = os.path.join(user_dir, image_files[0])
+
+        try:
+            # Charger l'image
+            image = cv2.imread(image_path)
+            if image is None:
+                raise ValueError(f"Impossible de charger {image_path}")
+
+            # Étape 1: Classification du document
+            classification = doc_classifier.classify(image)
+
+            if classification['status'] != 'success':
+                # Cas où aucun document n'est détecté ou erreur de classification
+                logger.warning(
+                    f"Aucun document détecté pour {user_id}, enregistrement direct de l'image")
+                doc_type = 'unknown'
+                with open(image_path, 'rb') as f:
+                    image_data = f.read()
+            else:
+                doc_type = classification['class_name']
+
+                # Étape 2: Traitement spécial pour old_cni_recto
+                if doc_type == 'old_cni_recto':
+                    extracted_photo = old_cni_extractor.extract_photo_zone(
+                        image)
+                    if extracted_photo is not None:
+                        _, img_encoded = cv2.imencode('.jpg', extracted_photo)
+                        image_data = img_encoded.tobytes()
+                    else:
+                        logger.warning(
+                            f"Zone photo non extraite pour {user_id}, utilisation de l'image complète")
+                        with open(image_path, 'rb') as f:
+                            image_data = f.read()
+                else:
+                    # Pour les autres types, utiliser l'image originale
+                    with open(image_path, 'rb') as f:
+                        image_data = f.read()
+
+            # Étape 3: Enregistrement du visage
+            uploaded_file = SimpleUploadedFile(
+                name=image_files[0],
+                content=image_data,
+                content_type='image/jpeg'
+            )
+
+            mock_request = RequestFactory().post('/register_face/', {
+                'user_id': user_id,
+                'source': 'db_passenger',
+                'doc_type': doc_type
+            })
+            mock_request.FILES['image'] = uploaded_file
+
+            response = register_face(mock_request)
+
+            print("x*x"*10)
+            print(response.status_code)
+            print("x*x"*10)
+            if response.status_code == 200:
+                shutil.rmtree(user_dir)
+                processed_users.append({
+                    'user_id': user_id,
+                    'doc_type': doc_type,
+                    'status': 'success'
+                })
+            else:
+                failed_users.append({
+                    'user_id': user_id,
+                    'doc_type': doc_type,
+                    'error': response.json().get('message', 'Unknown error'),
+                    'status': 'failed'
+                })
+
+        except Exception as e:
+            failed_users.append({
+                'user_id': user_id,
+                'error': str(e),
+                'status': 'failed'
+            })
+            logger.error(f"Erreur traitement {user_id}: {str(e)}")
+
+    return Response({
+        "database_cleared": True,
+        "sync_passengers": passenger_response,
+        "process_pending_users": {
+            "status": "completed",
+            "processed": len(processed_users),
+            "successful_users": processed_users,
+            "failed_users": failed_users,
+            "statistics": {
+                "old_cni_recto_count": sum(1 for u in processed_users + failed_users if u.get('doc_type') == 'old_cni_recto'),
+                "other_types_count": sum(1 for u in processed_users + failed_users if u.get('doc_type') != 'old_cni_recto'),
+                "unknown_types_count": sum(1 for u in processed_users + failed_users if u.get('doc_type') == 'unknown')
+            }
+        }
+    }, status=status.HTTP_200_OK)
+
+########################################################
+    # Add new face in faiss
+# ######################################################
+
+
 @csrf_exempt
 def register_face(request):
     """Endpoint pour enregistrer un nouveau visage"""
@@ -194,6 +516,8 @@ def register_face(request):
 
             if embedding is None:
                 # Suppression de l'image si aucun visage détecté
+
+                print("le probeleme est ici :",)
                 if os.path.exists(image_path):
                     os.remove(image_path)
                 return JsonResponse({
@@ -341,6 +665,7 @@ def verify_face_topn(request):
         try:
             image_file = request.FILES.get('image')
             threshold = float(request.POST.get('threshold', 0.8))
+            top_n = int(request.POST.get('top_n', 3))
 
             if not image_file:
                 return JsonResponse({
@@ -358,7 +683,8 @@ def verify_face_topn(request):
                 }, status=400)
 
             # Récupérer les top 3 correspondances
-            matches = face_db.search_face_topn(embedding, threshold, top_n=3)
+            matches = face_db.search_face_topn(
+                embedding, threshold, top_n=top_n)
 
             # Si c'est un tuple unique (ancienne version), le convertir en liste
             if isinstance(matches, tuple):
@@ -565,42 +891,181 @@ def delete_user(request):
     return JsonResponse({'success': False, 'message': 'Méthode non autorisée'}, status=405)
 
 
+# @csrf_exempt
+# def clear_database(request):
+#     """Vidage radical mais contrôlé de la base"""
+#     if request.method != 'POST':
+#         return JsonResponse({'success': False, 'message': 'Méthode non autorisée'}, status=405)
+
+#     try:
+#         # 1. Suppression complète du dossier data
+#         data_dir = 'data'
+#         temp_dir = 'data_temp_backup'
+
+#         # Sauvegarde temporaire (optionnel)
+#         if os.path.exists(data_dir):
+#             shutil.move(data_dir, temp_dir)
+
+#         # 2. Recréation de la structure
+#         os.makedirs(data_dir, exist_ok=True)
+
+#         # 3. Réinitialisation des fichiers
+#         dimension = 512
+#         index = faiss.IndexFlatL2(dimension)
+#         faiss.write_index(index, os.path.join(data_dir, 'faiss_index.index'))
+
+#         with open(os.path.join(data_dir, 'ids_mapping.pkl'), 'wb') as f:
+#             pickle.dump([], f)
+
+#         # 4. Nettoyage des utilisateurs (media/data)
+#         media_data_dir = os.path.join('media', 'data')
+#         if os.path.exists(media_data_dir):
+#             shutil.rmtree(media_data_dir)
+#             os.makedirs(media_data_dir)
+
+#         # 5. Nettoyage final
+#         if os.path.exists(temp_dir):
+#             shutil.rmtree(temp_dir)
+
+#         return JsonResponse({
+#             'success': True,
+#             'message': 'Base réinitialisée radicalement',
+#             'details': {
+#                 'faiss_recreated': True,
+#                 'mapping_reset': True,
+#                 'media_data_cleaned': True
+#             }
+#         })
+
+#     except Exception as e:
+#         # Rollback en cas d'échec
+#         if os.path.exists(temp_dir) and not os.path.exists(data_dir):
+#             shutil.move(temp_dir, data_dir)
+
+#         logger.critical(f"ERREUR RADICALE: {str(e)}", exc_info=True)
+#         return JsonResponse({
+#             'success': False,
+#             'error': str(e),
+#             'message': 'Échec de la réinitialisation radicale',
+#             'restored_backup': os.path.exists(data_dir)
+#         }, status=500)
+
+
+def force_reload_faiss_structures():
+    """Force le rechargement de toutes les structures FAISS en mémoire"""
+    global faiss_index, ids_mapping, embeddings_cache  # Adaptez selon vos variables
+
+    data_dir = 'data'
+
+    try:
+        # Rechargement de l'index FAISS
+        index_path = os.path.join(data_dir, 'faiss_index.index')
+        if os.path.exists(index_path):
+            faiss_index = faiss.read_index(index_path)
+        else:
+            # Si pas d'index, créer un nouveau
+            dimension = 512
+            faiss_index = faiss.IndexFlatL2(dimension)
+
+        # Rechargement du mapping des IDs
+        mapping_path = os.path.join(data_dir, 'ids_mapping.pkl')
+        if os.path.exists(mapping_path):
+            with open(mapping_path, 'rb') as f:
+                ids_mapping = pickle.load(f)
+        else:
+            ids_mapping = []
+
+        # Vider les caches s'ils existent
+        if 'embeddings_cache' in globals():
+            embeddings_cache.clear()
+
+        # Cache Django
+        from django.core.cache import cache
+        cache.clear()
+
+        return True, "Structures rechargées avec succès"
+
+    except Exception as e:
+        return False, f"Erreur lors du rechargement: {str(e)}"
+
+
+@csrf_exempt
+def reload_memory_structures(request):
+    """Endpoint pour forcer le rechargement des structures en mémoire"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Méthode non autorisée'}, status=405)
+
+    success, message = force_reload_faiss_structures()
+
+    return JsonResponse({
+        'success': success,
+        'message': message
+    })
+
+# Version améliorée de votre fonction clear_database
+
+
 @csrf_exempt
 def clear_database(request):
-    """Endpoint corrigé pour vider la base"""
-    if request.method == 'POST':
-        try:
-            dimension = 512  # Doit correspondre à votre modèle
-            index = faiss.IndexFlatL2(dimension)
+    """Vidage radical avec rechargement automatique"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Méthode non autorisée'}, status=405)
 
-            # Réinitialiser complètement
-            faiss.write_index(index, 'data/faiss_index.index')
-            with open('data/ids_mapping.pkl', 'wb') as f:
-                pickle.dump([], f)
+    try:
+        # Votre code de nettoyage existant...
+        data_dir = 'data'
+        temp_dir = 'data_temp_backup'
 
-            # Supprimer tous les dossiers utilisateurs
-            data_dir = 'media/data'
-            if os.path.exists(data_dir):
-                for user_dir in os.listdir(data_dir):
-                    user_path = os.path.join(data_dir, user_dir)
-                    if os.path.isdir(user_path):
-                        shutil.rmtree(user_path)
+        if os.path.exists(data_dir):
+            shutil.move(data_dir, temp_dir)
 
-            # Vérification
-            index = faiss.read_index('data/faiss_index.index')
-            with open('data/ids_mapping.pkl', 'rb') as f:
-                ids_mapping = pickle.load(f)
+        os.makedirs(data_dir, exist_ok=True)
 
-            if index.ntotal == 0 and len(ids_mapping) == 0:
-                return JsonResponse({'success': True, 'message': 'Base complètement vidée'})
-            else:
-                return JsonResponse({'success': False, 'message': 'La suppression a échoué'}, status=500)
+        dimension = 512
+        index = faiss.IndexFlatL2(dimension)
+        faiss.write_index(index, os.path.join(data_dir, 'faiss_index.index'))
 
-        except Exception as e:
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
-    return JsonResponse({'success': False, 'message': 'Méthode non autorisée'}, status=405)
+        with open(os.path.join(data_dir, 'ids_mapping.pkl'), 'wb') as f:
+            pickle.dump([], f)
 
-# Liste des users
+        media_data_dir = os.path.join('media', 'data')
+        if os.path.exists(media_data_dir):
+            shutil.rmtree(media_data_dir)
+            os.makedirs(media_data_dir)
+
+        # CRUCIAL: Rechargement forcé après nettoyage
+        success, reload_message = force_reload_faiss_structures()
+
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+
+        return JsonResponse({
+            'success': True,
+            'message': 'Base réinitialisée avec rechargement forcé',
+            'reload_status': success,
+            'reload_message': reload_message,
+            'details': {
+                'faiss_recreated': True,
+                'mapping_reset': True,
+                'media_data_cleaned': True,
+                'memory_reloaded': success
+            }
+        })
+
+    except Exception as e:
+        if os.path.exists(temp_dir) and not os.path.exists(data_dir):
+            shutil.move(temp_dir, data_dir)
+
+        logger.critical(f"ERREUR RADICALE: {str(e)}", exc_info=True)
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'message': 'Échec de la réinitialisation radicale'
+        }, status=500)
+
+##################################
+    # Liste des users
+##################################
 
 
 @csrf_exempt

@@ -1,5 +1,6 @@
 faiss-cpu
 insightface
+ultralytics
 django
 onnxruntime
 torch
